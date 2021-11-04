@@ -1,6 +1,31 @@
 from django.db import models
 from django.urls import reverse
 from django.contrib.auth.models import User
+from django.db.models import Count
+
+
+class PostQuerySet(models.QuerySet):
+    def popular(self):
+        most_popular_posts = self.annotate(
+            likes_count=Count('likes')).order_by('-likes_count')
+        return most_popular_posts
+
+    def fetch_with_comments_count(self):
+        posts_with_comments = Post.objects.filter(
+            id__in=self
+        ).annotate(
+            total_comments=Count('comments')
+        )
+        post_ids_and_comments = dict(
+            posts_with_comments.values_list('id', 'total_comments')
+        )
+        for post in self:
+            post.total_comments = post_ids_and_comments[post.id]
+        return self
+
+    def fresh(self):
+        fresh_posts = self.order_by('-published_at')
+        return fresh_posts
 
 
 class Post(models.Model):
@@ -24,6 +49,7 @@ class Post(models.Model):
         'Tag',
         related_name='posts',
         verbose_name='Теги')
+    objects = PostQuerySet.as_manager()
 
     def __str__(self):
         return self.title
@@ -37,8 +63,18 @@ class Post(models.Model):
         verbose_name_plural = 'посты'
 
 
+class TagQuerySet(models.QuerySet):
+
+    def popular(self):
+        popular_tags = self.annotate(
+            total_posts=Count('posts', distinct=True)
+        ).order_by('-total_posts')
+        return popular_tags
+
+
 class Tag(models.Model):
     title = models.CharField('Тег', max_length=20, unique=True)
+    objects = TagQuerySet.as_manager()
 
     def __str__(self):
         return self.title
@@ -59,6 +95,7 @@ class Comment(models.Model):
     post = models.ForeignKey(
         'Post',
         on_delete=models.CASCADE,
+        related_name='comments',
         verbose_name='Пост, к которому написан')
     author = models.ForeignKey(
         User,
