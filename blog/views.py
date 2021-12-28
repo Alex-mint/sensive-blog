@@ -4,32 +4,11 @@ from django.db.models import Count, Prefetch
 
 
 def serialize_post(post):
-    print(dir(post))
     return {
         'title': post.title,
         'teaser_text': post.text[:200],
         'author': post.author.username,
-        'comments_amount': post.comments.Count(),#post.total_comments,
-        'image_url': post.image.url if post.image else None,
-        'published_at': post.published_at,
-        'slug': post.slug,
-        'tags': Tag.objects.filter(
-                id__in=[tag.id for tag in post.tags.all()]
-            ).annotate(
-                posts_with_tag=Count('posts')
-            ).values('title', 'posts_with_tag'),
-        # "tags": [serialize_tag_optimized(tag) for tag in post.tags.annotate(Count('posts'))],
-        #'tags': [serialize_tag(tag) for tag in post.tags.all()],
-        'first_tag_title': post.tags.all()[0].title,
-    }
-
-
-def serialize_post_optimized(post):
-    return {
-        'title': post.title,
-        'teaser_text': post.text[:200],
-        'author': post.author.username,
-        'comments_amount': len(Comment.objects.filter(post=post)),
+        'comments_amount': post.total_comments,
         'image_url': post.image.url if post.image else None,
         'published_at': post.published_at,
         'slug': post.slug,
@@ -37,40 +16,19 @@ def serialize_post_optimized(post):
         'first_tag_title': post.tags.all()[0].title,
     }
 
+
 def serialize_tag(tag):
     return {
         'title': tag.title,
-        'posts_with_tag': len(Post.objects.filter(tags=tag)),
+        'posts_with_tag': tag.posts_count,
     }
 
 
 def index(request):
-    most_popular_posts = Post.objects.popular()[:5] \
-        .prefetch_related('author') \
-        .prefetch_related(
-        Prefetch(
-            'tags',
-            queryset=Tag.objects.annotate(Count('posts'))
-        )
-    ) \
-        .fetch_with_comments_count()
-
-    most_fresh_posts = Post.objects.order_by('-published_at')[:5] \
-        .annotate(Count('comments')) \
-        .prefetch_related('author') \
-        .prefetch_related(
-        Prefetch(
-            'tags',
-            queryset=Tag.objects.annotate(Count('posts'))
-        )
-    )
-
-    # most_fresh_posts = Post.objects.fresh()[:5] \
-    #     .prefetch_related('author', 'tags') \
-    #     .fetch_with_comments_count()
-
+    posts = Post.objects.prefetch_related('author').fetch_with_tag_count()
+    most_fresh_posts = posts.fetch_with_comments_count()[:5]
+    most_popular_posts = posts.popular().fetch_with_comments_count()[:5]
     most_popular_tags = Tag.objects.popular()[:5]
-
     context = {
         'most_popular_posts': [
             serialize_post(post) for post in most_popular_posts
@@ -82,8 +40,8 @@ def index(request):
 
 
 def post_detail(request, slug):
-    post = Post.objects.get(slug=slug)
-    comments = Comment.objects.filter(post=post)
+    post = Post.objects.select_related('author').get(slug=slug)
+    comments = post.comments.all().prefetch_related('author')
     serialized_comments = []
     for comment in comments:
         serialized_comments.append({
@@ -94,14 +52,14 @@ def post_detail(request, slug):
 
     likes = post.likes.all()
 
-    related_tags = post.tags.all()
+    related_tags = post.tags.popular()
 
     serialized_post = {
         'title': post.title,
         'text': post.text,
         'author': post.author.username,
         'comments': serialized_comments,
-        'likes_amount': len(likes),
+        'likes_amount': likes.count,
         'image_url': post.image.url if post.image else None,
         'published_at': post.published_at,
         'slug': post.slug,
@@ -109,10 +67,8 @@ def post_detail(request, slug):
     }
 
     most_popular_tags = Tag.objects.popular()[:5]
-
-    most_popular_posts = Post.objects.popular() \
-        .prefetch_related('author', 'tags')[:5] \
-        .fetch_with_comments_count()
+    posts = Post.objects.prefetch_related('author').fetch_with_tag_count()
+    most_popular_posts = posts.popular().fetch_with_comments_count()[:5]
 
     context = {
         'post': serialized_post,
