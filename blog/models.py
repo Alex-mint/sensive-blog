@@ -23,9 +23,6 @@ class PostQuerySet(models.QuerySet):
             post.total_comments = post_ids_and_comments[post.id]
         return self
 
-    # def fresh(self):
-    #     fresh_posts = self.order_by('-published_at')
-    #     return fresh_posts
 
     def fetch_with_tag_count(self):
         most_popular_tags = self.prefetch_related(
