@@ -86,7 +86,10 @@ def post_detail(request, slug):
 
 
 def tag_filter(request, tag_title):
-    tag = Tag.objects.get(title=tag_title)
+    try:
+        tag = Tag.objects.get(title=tag_title)
+    except Post.DoesNotExist:
+        return HttpResponseNotFound('Тэг не найден')
     posts = Post.objects.prefetch_related('author').fetch_with_tag_count()
     related_posts = posts.fetch_with_comments_count()[:10]
 
